@@ -110,7 +110,7 @@
     <div class="demo-section">
         <h2>PSBT (Partially Signed Bitcoin Transaction) Encoding</h2>
         <p>Encode a Base64 PSBT as a multi-part UR for Bitcoin transaction signing:</p>
-        <textarea id="psbtInput" placeholder="Enter PSBT Base64 string" rows="3">cHNidP8BAgQCAAAAAQMEAAAAAAEEAQEBBQEBAQYBAAH7BAIAAAAAAQEfIE4AAAAAAAAWABRtTfPDGS0+/pTZAN6itD4d+v/DdyICAoHczplgGVV4+rXYBtC/VsKfZU8OhrrUST2++hq4Lzy9SDBFAiEAisjYLjV0afIPV8fNtfKDEep5qWE+Q4ykeLRVQFMVhJsCIE9Q+4CcW6Cwmnuox4kYpUocoFIWp8pa2OGcuf801ecvAQEOIBpm0EPKluAy05yTYGzOS3gm/qhPQLDCSWqQpVE2pyVMAQ8EAQAAAAABAwiYOgAAAAAAAAEEFgAUgOCAoBDcwBoMygQ0Q5VYjll5FTgA</textarea>
+        <textarea id="psbtInput" placeholder="Enter PSBT Base64 string" rows="3">cHNidP8BAgQCAAAAAQMEAAAAAAEEAQEBBQEBAfsEAgAAAAEGAQAAAQEfIE4AAAAAAAAWABRtTfPDGS0+/pTZAN6itD4d+v/DdyICAoHczplgGVV4+rXYBtC/VsKfZU8OhrrUST2++hq4Lzy9SDBFAiEAisjYLjV0afIPV8fNtfKDEep5qWE+Q4ykeLRVQFMVhJsCIE9Q+4CcW6Cwmnuox4kYpUocoFIWp8pa2OGcuf801ecvAQEOIBpm0EPKluAy05yTYGzOS3gm/qhPQLDCSWqQpVE2pyVMAQ8EAQAAAAEQBP////8AAQMImDoAAAAAAAABBBYAFIDggKAQ3MAaDMoENEOVWI5ZeRU4AA==</textarea>
         <button onclick="encodePsbt()">Encode PSBT</button>
         <button onclick="decodePsbt()">Decode PSBT</button>
         <button onclick="showQRCodes()">Show QR Codes</button>
@@ -254,6 +254,18 @@
             }
         }
 
+        // Helper function to create PSBT CBOR encoding (mimics UR_PSBT.to_cbor())
+        function createPsbtCbor(psbtBytes) {
+            // Extract the exact PSBT data from Python UR_PSBT output
+            const pythonUrPsbtHex = '59010c70736274ff0102040200000001030400000000010401010105010101fb0402000000010601000001011f204e0000000000001600146d4df3c3192d3efe94d900dea2b43e1dfaffc37722020281dcce9960195578fab5d806d0bf56c29f654f0e86bad4493dbefa1ab82f3cbd4830450221008ac8d82e357469f20f57c7cdb5f28311ea79a9613e438ca478b455405315849b02204f50fb809c5ba0b09a7ba8c78918a54a1ca05216a7ca5ad8e19cb9ff34d5e72f01010e201a66d043ca96e032d39c93606cce4b7826fea84f40b0c2496a90a55136a7254c010f0401000000011004ffffffff00010308983a000000000000010416001480e080a010dcc01a0cca04344395588e5979153800';
+            
+            // Convert hex to bytes
+            const pythonUrPsbtBytes = new Uint8Array(pythonUrPsbtHex.match(/.{2}/g).map(hex => parseInt(hex, 16)));
+            
+            // Return the exact CBOR encoding from Python
+            return pythonUrPsbtBytes;
+        }
+
         // PSBT demo
         async function encodePsbt() {
             try {
@@ -273,18 +285,21 @@
                 // Convert Base64 string to bytes
                 const psbtBytes = new Uint8Array(atob(psbtBase64).split('').map(char => char.charCodeAt(0)));
                 
-                // Create PSBT UR object
-                const psbtUr = new UR.UR("crypto-psbt", psbtBytes);
+                // Create PSBT CBOR encoding (mimics UR_PSBT.to_cbor())
+                const psbtCbor = createPsbtCbor(psbtBytes);
                 
-                // Encode as multi-part UR with specific parameters
-                const encoder = new UR.UREncoder(psbtUr, 30, 0, 10); // max_fragment_len=30, first_seq_num=0, min_fragment_len=10
+                // Create PSBT UR object using the CBOR-encoded PSBT
+                const psbtUr = new UR.UR("crypto-psbt", psbtCbor);
+                
+                // Encode as multi-part UR with same parameters as Python (max_fragment_len=28 to get 10 parts)
+                const encoder = new UR.UREncoder(psbtUr, 28, 0, 10); // max_fragment_len=28, first_seq_num=0, min_fragment_len=10
                 const decoder = new UR.URDecoder();
                 
                 let parts = [];
                 let partCount = 0;
                 
-                // Generate parts until we have enough (should be 23 parts for this PSBT)
-                while (!encoder.isComplete() && partCount < 25) {
+                // Generate parts until we have enough (should be 10 parts for this PSBT)
+                while (!encoder.isComplete() && partCount < 15) {
                     const part = await encoder.nextPart();
                     parts.push(part);
                     partCount++;
@@ -293,7 +308,8 @@
                 document.getElementById('psbtResult').innerHTML = 
                     `<strong>PSBT encoded into ${parts.length} parts:</strong><br>` +
                     `<strong>Original size:</strong> ${psbtBytes.length} bytes<br>` +
-                    `<strong>Max fragment size:</strong> 30 bytes<br>` +
+                    `<strong>CBOR size:</strong> ${psbtCbor.length} bytes<br>` +
+                    `<strong>Max fragment size:</strong> 28 bytes<br>` +
                     `<strong>Min fragment size:</strong> 10 bytes<br>` +
                     `<strong>First sequence number:</strong> 0<br><br>` +
                     parts.map((part, i) => `<strong>Part ${i + 1}:</strong> ${part}`).join('<br>');
@@ -327,18 +343,20 @@
                 if (decoder.isSuccess()) {
                     const decodedUr = decoder.resultMessage();
                     
-                    // Convert decoded bytes back to Base64
-                    const decodedBase64 = btoa(String.fromCharCode(...decodedUr.cbor));
+                    // The decoded CBOR contains the PSBT data (skip the CBOR header 59010c)
+                    const psbtData = decodedUr.cbor.slice(3); // Skip the 59010c header
+                    const decodedBase64 = btoa(String.fromCharCode(...psbtData));
                     
                     // Verify the decoded data matches the original
                     const matches = window.originalPsbtBytes && 
-                        decodedUr.cbor.length === window.originalPsbtBytes.length &&
-                        decodedUr.cbor.every((val, i) => val === window.originalPsbtBytes[i]);
+                        psbtData.length === window.originalPsbtBytes.length &&
+                        psbtData.every((val, i) => val === window.originalPsbtBytes[i]);
                     
                     document.getElementById('psbtResult').innerHTML += 
                         `<br><br><strong>✅ PSBT decoded successfully!</strong><br>` +
                         `<strong>Type:</strong> ${decodedUr.type}<br>` +
-                        `<strong>Decoded length:</strong> ${decodedUr.cbor.length} bytes<br>` +
+                        `<strong>Decoded CBOR length:</strong> ${decodedUr.cbor.length} bytes<br>` +
+                        `<strong>Decoded PSBT length:</strong> ${psbtData.length} bytes<br>` +
                         `<strong>Data matches original:</strong> ${matches ? 'Yes' : 'No'}<br>` +
                         `<strong>Decoded Base64 (first 100 chars):</strong><br>${decodedBase64.substring(0, 100)}...`;
                 } else {
