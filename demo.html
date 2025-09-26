@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Foundation UR JavaScript Library Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .demo-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .result {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 3px;
+            font-family: monospace;
+            word-break: break-all;
+            margin: 10px 0;
+        }
+        button {
+            background: #007cba;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 3px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #005a87;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Foundation UR JavaScript Library Demo</h1>
+    <p>This demo shows the Foundation UR JavaScript library working in the browser.</p>
+
+    <div class="demo-section">
+        <h2>Single Part UR Encoding/Decoding</h2>
+        <p>Encode and decode simple data as a single-part UR:</p>
+        <input type="text" id="singleInput" placeholder="Enter text to encode" value="Hello, UR World!">
+        <button onclick="encodeSingle()">Encode</button>
+        <button onclick="decodeSingle()">Decode</button>
+        <div id="singleResult" class="result"></div>
+    </div>
+
+    <div class="demo-section">
+        <h2>Multi-Part UR Encoding/Decoding</h2>
+        <p>Encode large data as a multi-part UR using fountain codes:</p>
+        <textarea id="multiInput" placeholder="Enter large text to encode" rows="4">This is a longer message that will be split into multiple parts using fountain codes. The fountain coding allows for efficient transmission even if some parts are lost or corrupted. This demonstrates the power of the UR system for reliable data transmission.</textarea>
+        <button onclick="encodeMulti()">Encode Multi-Part</button>
+        <button onclick="decodeMulti()">Decode Multi-Part</button>
+        <div id="multiResult" class="result"></div>
+    </div>
+
+    <div class="demo-section">
+        <h2>Bytewords Encoding</h2>
+        <p>Encode data using the Bytewords format:</p>
+        <input type="text" id="bytewordsInput" placeholder="Enter text to encode" value="Test">
+        <button onclick="encodeBytewords()">Encode Bytewords</button>
+        <div id="bytewordsResult" class="result"></div>
+    </div>
+
+    <script src="dist/ur.js"></script>
+    <script>
+        // Single part UR demo
+        async function encodeSingle() {
+            try {
+                const input = document.getElementById('singleInput').value;
+                const data = new TextEncoder().encode(input);
+                
+                // Create a UR object
+                const ur = new UR.UR("bytes", data);
+                
+                // Encode as single part
+                const encoded = UR.UREncoder.encode(ur);
+                
+                document.getElementById('singleResult').innerHTML = 
+                    `<strong>Encoded:</strong><br>${encoded}`;
+            } catch (error) {
+                document.getElementById('singleResult').innerHTML = 
+                    `<strong>Error:</strong> ${error.message}`;
+            }
+        }
+
+        async function decodeSingle() {
+            try {
+                const encoded = document.getElementById('singleResult').textContent;
+                if (!encoded.includes('ur:')) {
+                    alert('Please encode something first');
+                    return;
+                }
+                
+                // Extract the UR string from the result
+                const urString = encoded.split('<br>')[1];
+                const decoded = UR.URDecoder.decode(urString);
+                
+                // Convert back to text
+                const text = new TextDecoder().decode(decoded.cbor);
+                
+                document.getElementById('singleResult').innerHTML += 
+                    `<br><br><strong>Decoded:</strong><br>${text}`;
+            } catch (error) {
+                document.getElementById('singleResult').innerHTML += 
+                    `<br><br><strong>Error:</strong> ${error.message}`;
+            }
+        }
+
+        // Multi-part UR demo
+        async function encodeMulti() {
+            try {
+                const input = document.getElementById('multiInput').value;
+                const data = new TextEncoder().encode(input);
+                
+                // Create a UR object
+                const ur = new UR.UR("bytes", data);
+                
+                // Encode as multi-part with small fragment size
+                const encoder = new UR.UREncoder(ur, 50); // 50 byte fragments
+                const decoder = new UR.URDecoder();
+                
+                let parts = [];
+                let partCount = 0;
+                
+                // Generate parts until we have enough
+                while (!encoder.isComplete() && partCount < 20) {
+                    const part = await encoder.nextPart();
+                    parts.push(part);
+                    partCount++;
+                }
+                
+                document.getElementById('multiResult').innerHTML = 
+                    `<strong>Generated ${parts.length} parts:</strong><br>` +
+                    parts.map((part, i) => `${i + 1}. ${part}`).join('<br>');
+                
+                // Store parts for decoding
+                window.multiParts = parts;
+            } catch (error) {
+                document.getElementById('multiResult').innerHTML = 
+                    `<strong>Error:</strong> ${error.message}`;
+            }
+        }
+
+        async function decodeMulti() {
+            try {
+                if (!window.multiParts) {
+                    alert('Please encode something first');
+                    return;
+                }
+                
+                const decoder = new UR.URDecoder();
+                
+                // Process each part
+                for (const part of window.multiParts) {
+                    await decoder.receivePart(part);
+                    if (decoder.isComplete()) {
+                        break;
+                    }
+                }
+                
+                if (decoder.isSuccess()) {
+                    const decoded = decoder.resultMessage();
+                    const text = new TextDecoder().decode(decoded.cbor);
+                    
+                    document.getElementById('multiResult').innerHTML += 
+                        `<br><br><strong>Decoded successfully:</strong><br>${text}`;
+                } else {
+                    document.getElementById('multiResult').innerHTML += 
+                        `<br><br><strong>Decode failed:</strong> ${decoder.resultError()}`;
+                }
+            } catch (error) {
+                document.getElementById('multiResult').innerHTML += 
+                    `<br><br><strong>Error:</strong> ${error.message}`;
+            }
+        }
+
+        // Bytewords demo
+        function encodeBytewords() {
+            try {
+                const input = document.getElementById('bytewordsInput').value;
+                const data = new TextEncoder().encode(input);
+                
+                // Encode using different Bytewords styles
+                const standard = UR.Bytewords.encode(UR.Bytewords_Style_standard, data);
+                const uri = UR.Bytewords.encode(UR.Bytewords_Style_uri, data);
+                const minimal = UR.Bytewords.encode(UR.Bytewords_Style_minimal, data);
+                
+                document.getElementById('bytewordsResult').innerHTML = 
+                    `<strong>Standard:</strong> ${standard}<br>` +
+                    `<strong>URI:</strong> ${uri}<br>` +
+                    `<strong>Minimal:</strong> ${minimal}`;
+            } catch (error) {
+                document.getElementById('bytewordsResult').innerHTML = 
+                    `<strong>Error:</strong> ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>
