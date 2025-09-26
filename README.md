@@ -1,5 +1,7 @@
 # Foundation UR JavaScript Library
 
+> ⚠️ **WARNING: This is a vibecode** - This library was generated using AI assistance and may contain errors or inconsistencies. Please use with caution and verify functionality before using in production environments.
+
 **JavaScript implementation of UR (Uniform Resources) -- ported from the [Python implementation by Foundation Devices](https://github.com/Foundation-Devices/foundation-ur-py)**
 
 ## Introduction
