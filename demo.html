@@ -45,6 +45,36 @@
             border: 1px solid #ddd;
             border-radius: 3px;
         }
+        .qr-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        .qr-code {
+            border: 2px solid #007cba;
+            border-radius: 5px;
+            padding: 10px;
+            background: white;
+            text-align: center;
+            min-width: 200px;
+        }
+        .qr-code canvas {
+            max-width: 100%;
+            height: auto;
+        }
+        .qr-label {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #007cba;
+        }
+        .rotating {
+            animation: rotate 2s linear infinite;
+        }
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -77,7 +107,20 @@
         <div id="bytewordsResult" class="result"></div>
     </div>
 
+    <div class="demo-section">
+        <h2>PSBT (Partially Signed Bitcoin Transaction) Encoding</h2>
+        <p>Encode a Base64 PSBT as a multi-part UR for Bitcoin transaction signing:</p>
+        <textarea id="psbtInput" placeholder="Enter PSBT Base64 string" rows="3">cHNidP8BAgQCAAAAAQMEAAAAAAEEAQEBBQEBAQYBAAH7BAIAAAAAAQEfIE4AAAAAAAAWABRtTfPDGS0+/pTZAN6itD4d+v/DdyICAoHczplgGVV4+rXYBtC/VsKfZU8OhrrUST2++hq4Lzy9SDBFAiEAisjYLjV0afIPV8fNtfKDEep5qWE+Q4ykeLRVQFMVhJsCIE9Q+4CcW6Cwmnuox4kYpUocoFIWp8pa2OGcuf801ecvAQEOIBpm0EPKluAy05yTYGzOS3gm/qhPQLDCSWqQpVE2pyVMAQ8EAQAAAAABAwiYOgAAAAAAAAEEFgAUgOCAoBDcwBoMygQ0Q5VYjll5FTgA</textarea>
+        <button onclick="encodePsbt()">Encode PSBT</button>
+        <button onclick="decodePsbt()">Decode PSBT</button>
+        <button onclick="showQRCodes()">Show QR Codes</button>
+        <button onclick="hideQRCodes()">Hide QR Codes</button>
+        <div id="psbtResult" class="result"></div>
+        <div id="qrContainer" class="qr-container" style="display: none;"></div>
+    </div>
+
     <script src="dist/ur.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
     <script>
         // Single part UR demo
         async function encodeSingle() {
@@ -210,6 +253,207 @@
                     `<strong>Error:</strong> ${error.message}`;
             }
         }
+
+        // PSBT demo
+        async function encodePsbt() {
+            try {
+                const psbtBase64 = document.getElementById('psbtInput').value.trim();
+                
+                // Debug: log the input
+                console.log('PSBT Base64 input:', psbtBase64);
+                console.log('PSBT Base64 length:', psbtBase64.length);
+                console.log('PSBT Base64 first 50 chars:', psbtBase64.substring(0, 50));
+                
+                // Validate Base64 string
+                if (!/^[A-Za-z0-9+/]*={0,2}$/.test(psbtBase64)) {
+                    console.log('Base64 validation failed for:', psbtBase64);
+                    throw new Error('Invalid Base64 string - must contain only A-Z, a-z, 0-9, +, /, and = characters');
+                }
+                
+                // Convert Base64 string to bytes
+                const psbtBytes = new Uint8Array(atob(psbtBase64).split('').map(char => char.charCodeAt(0)));
+                
+                // Create PSBT UR object
+                const psbtUr = new UR.UR("crypto-psbt", psbtBytes);
+                
+                // Encode as multi-part UR with specific parameters
+                const encoder = new UR.UREncoder(psbtUr, 30, 0, 10); // max_fragment_len=30, first_seq_num=0, min_fragment_len=10
+                const decoder = new UR.URDecoder();
+                
+                let parts = [];
+                let partCount = 0;
+                
+                // Generate parts until we have enough (should be 23 parts for this PSBT)
+                while (!encoder.isComplete() && partCount < 25) {
+                    const part = await encoder.nextPart();
+                    parts.push(part);
+                    partCount++;
+                }
+                
+                document.getElementById('psbtResult').innerHTML = 
+                    `<strong>PSBT encoded into ${parts.length} parts:</strong><br>` +
+                    `<strong>Original size:</strong> ${psbtBytes.length} bytes<br>` +
+                    `<strong>Max fragment size:</strong> 30 bytes<br>` +
+                    `<strong>Min fragment size:</strong> 10 bytes<br>` +
+                    `<strong>First sequence number:</strong> 0<br><br>` +
+                    parts.map((part, i) => `<strong>Part ${i + 1}:</strong> ${part}`).join('<br>');
+                
+                // Store parts for decoding
+                window.psbtParts = parts;
+                window.originalPsbtBytes = psbtBytes;
+            } catch (error) {
+                document.getElementById('psbtResult').innerHTML = 
+                    `<strong>Error:</strong> ${error.message}`;
+            }
+        }
+
+        async function decodePsbt() {
+            try {
+                if (!window.psbtParts) {
+                    alert('Please encode a PSBT first');
+                    return;
+                }
+                
+                const decoder = new UR.URDecoder();
+                
+                // Process each part
+                for (const part of window.psbtParts) {
+                    await decoder.receivePart(part);
+                    if (decoder.isComplete()) {
+                        break;
+                    }
+                }
+                
+                if (decoder.isSuccess()) {
+                    const decodedUr = decoder.resultMessage();
+                    
+                    // Convert decoded bytes back to Base64
+                    const decodedBase64 = btoa(String.fromCharCode(...decodedUr.cbor));
+                    
+                    // Verify the decoded data matches the original
+                    const matches = window.originalPsbtBytes && 
+                        decodedUr.cbor.length === window.originalPsbtBytes.length &&
+                        decodedUr.cbor.every((val, i) => val === window.originalPsbtBytes[i]);
+                    
+                    document.getElementById('psbtResult').innerHTML += 
+                        `<br><br><strong>✅ PSBT decoded successfully!</strong><br>` +
+                        `<strong>Type:</strong> ${decodedUr.type}<br>` +
+                        `<strong>Decoded length:</strong> ${decodedUr.cbor.length} bytes<br>` +
+                        `<strong>Data matches original:</strong> ${matches ? 'Yes' : 'No'}<br>` +
+                        `<strong>Decoded Base64 (first 100 chars):</strong><br>${decodedBase64.substring(0, 100)}...`;
+                } else {
+                    document.getElementById('psbtResult').innerHTML += 
+                        `<br><br><strong>❌ Decode failed:</strong> ${decoder.resultError()}`;
+                }
+            } catch (error) {
+                document.getElementById('psbtResult').innerHTML += 
+                    `<br><br><strong>Error:</strong> ${error.message}`;
+            }
+        }
+
+        // QR Code functions
+        function showQRCodes() {
+            if (!window.psbtParts || window.psbtParts.length === 0) {
+                alert('Please encode a PSBT first');
+                return;
+            }
+
+            const qrContainer = document.getElementById('qrContainer');
+            qrContainer.innerHTML = '';
+            qrContainer.style.display = 'flex';
+
+            // Generate QR codes for each part using QRious
+            window.psbtParts.forEach((part, index) => {
+                const qrDiv = document.createElement('div');
+                qrDiv.className = 'qr-code';
+                
+                const label = document.createElement('div');
+                label.className = 'qr-label';
+                label.textContent = `Part ${index + 1}`;
+                qrDiv.appendChild(label);
+
+                const canvas = document.createElement('canvas');
+                qrDiv.appendChild(canvas);
+
+                // Generate QR code using QRious
+                try {
+                    const qr = new QRious({
+                        element: canvas,
+                        value: part,
+                        size: 200,
+                        background: 'white',
+                        foreground: 'black',
+                        level: 'M'
+                    });
+                } catch (error) {
+                    console.error('QR Code generation error:', error);
+                    qrDiv.innerHTML = `
+                        <div class="qr-label">Part ${index + 1}</div>
+                        <div style="color: red; font-size: 12px; margin-top: 10px;">
+                            QR Generation Failed
+                        </div>
+                    `;
+                }
+
+                qrContainer.appendChild(qrDiv);
+            });
+
+            // Start rotation after a short delay
+            setTimeout(() => {
+                startQRRotation();
+            }, 1000);
+        }
+
+        function hideQRCodes() {
+            const qrContainer = document.getElementById('qrContainer');
+            qrContainer.style.display = 'none';
+            stopQRRotation();
+        }
+
+        let rotationInterval = null;
+        let currentQRIndex = 0;
+
+        function startQRRotation() {
+            if (rotationInterval) {
+                clearInterval(rotationInterval);
+            }
+
+            const qrCodes = document.querySelectorAll('.qr-code');
+            if (qrCodes.length === 0) return;
+
+            // Hide all QR codes initially
+            qrCodes.forEach(qr => qr.style.display = 'none');
+
+            // Show first QR code
+            if (qrCodes[0]) {
+                qrCodes[0].style.display = 'block';
+            }
+
+            // Rotate through QR codes every 2 seconds
+            rotationInterval = setInterval(() => {
+                // Hide current QR code
+                if (qrCodes[currentQRIndex]) {
+                    qrCodes[currentQRIndex].style.display = 'none';
+                }
+
+                // Move to next QR code
+                currentQRIndex = (currentQRIndex + 1) % qrCodes.length;
+
+                // Show next QR code
+                if (qrCodes[currentQRIndex]) {
+                    qrCodes[currentQRIndex].style.display = 'block';
+                }
+            }, 2000); // Rotate every 2 seconds
+        }
+
+        function stopQRRotation() {
+            if (rotationInterval) {
+                clearInterval(rotationInterval);
+                rotationInterval = null;
+            }
+            currentQRIndex = 0;
+        }
+
     </script>
 </body>
 </html>
