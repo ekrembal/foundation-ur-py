@@ -56,3 +56,6 @@ export { MAX_UINT32, MAX_UINT64 } from './constants.js';
 
 // Test utilities
 export { makeMessage, makeMessageUr } from './test_utils.js';
+
+// PSBT types
+export { PSBT, createPSBT, toHex, fromHex } from './psbt_types.js';

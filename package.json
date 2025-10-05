@@ -1,14 +1,22 @@
 {
   "name": "foundation-ur-js",
   "version": "1.0.0",
-  "description": "JavaScript implementation of Foundation UR (Uniform Resources) library",
+  "description": "JavaScript implementation of Foundation UR (Uniform Resources) library for Bitcoin PSBT encoding and QR code generation",
   "main": "dist/ur.js",
   "module": "src/index.js",
   "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.js",
+      "require": "./dist/ur.js"
+    }
+  },
   "scripts": {
     "build": "rollup -c",
     "test": "node test.js",
-    "dev": "rollup -c -w"
+    "test:psbt": "node test_psbt.js",
+    "dev": "rollup -c -w",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "ur",
@@ -16,19 +24,36 @@
     "qr-codes",
     "fountain-codes",
     "cbor",
-    "bytewords"
+    "bytewords",
+    "bitcoin",
+    "psbt",
+    "react",
+    "javascript",
+    "typescript"
   ],
   "author": "Foundation Devices",
   "license": "BSD-2-Clause-Patent",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ekrembal/foundation-ur-py.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ekrembal/foundation-ur-py/issues"
+  },
+  "homepage": "https://github.com/ekrembal/foundation-ur-py#readme",
   "devDependencies": {
     "rollup": "^4.0.0",
     "@rollup/plugin-node-resolve": "^15.2.3",
     "@rollup/plugin-terser": "^0.4.4"
   },
+  "peerDependencies": {
+    "react": ">=16.8.0"
+  },
   "files": [
     "dist/",
     "src/",
     "README.md",
+    "REACT_USAGE.md",
     "LICENSE"
   ]
 }
