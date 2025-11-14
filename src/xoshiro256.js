@@ -6,7 +6,7 @@
  */
 
 import { stringToBytes, intToBytes } from './utils.js';
-import { MAX_UINT64 } from './constants.js';
+import { MAX_UINT64, MAX_UINT64_BIGINT } from './constants.js';
 
 // Original Info:
 // Written in 2018 by David Blackman and Sebastiano Vigna (vigna@acm.org)
@@ -29,7 +29,9 @@ import { MAX_UINT64 } from './constants.js';
 // output to fill s.
 
 function rotl(x, k) {
-  return ((x << k) | (x >>> (64 - k))) & MAX_UINT64;
+  const xBig = BigInt(x);
+  const kBig = BigInt(k);
+  return Number((((xBig << kBig) | (xBig >> (64n - kBig))) & MAX_UINT64_BIGINT));
 }
 
 const JUMP = [0x180ec6d33cfd0aba, 0xd5a61266f0c9392c, 0xa9582618e03fc9aa, 0x39abdc4529b1661c];
@@ -37,23 +39,24 @@ const LONG_JUMP = [0x76e15d3efefdcbbf, 0xc5004e441c522fb3, 0x77710069854ee241, 0
 
 export class Xoshiro256 {
   constructor(arr = null) {
-    this.s = [0, 0, 0, 0];
+    // Keep state as BigInt for accurate 64-bit arithmetic
+    this.s = [0n, 0n, 0n, 0n];
     if (arr !== null) {
-      this.s[0] = arr[0];
-      this.s[1] = arr[1];
-      this.s[2] = arr[2];
-      this.s[3] = arr[3];
+      this.s[0] = BigInt(arr[0]);
+      this.s[1] = BigInt(arr[1]);
+      this.s[2] = BigInt(arr[2]);
+      this.s[3] = BigInt(arr[3]);
     }
   }
 
   _setS(arr) {
     for (let i = 0; i < 4; i++) {
       const o = i * 8;
-      let v = 0;
+      let v = 0n;
       for (let n = 0; n < 8; n++) {
-        v = (v << 8) | arr[o + n];
+        v = (v << 8n) | BigInt(arr[o + n]);
       }
-      this.s[i] = v;
+      this.s[i] = v & MAX_UINT64_BIGINT;
     }
   }
 
@@ -88,30 +91,43 @@ export class Xoshiro256 {
     return x;
   }
 
-  next() {
-    const result = (rotl((this.s[1] * 5) & MAX_UINT64, 7) * 9) & MAX_UINT64;
-    const t = (this.s[1] << 17) & MAX_UINT64;
+  // Internal method that returns BigInt for accuracy
+  _nextBigInt() {
+    const s0 = this.s[0];
+    const s1 = this.s[1];
+    const s2 = this.s[2];
+    const s3 = this.s[3];
+    
+    const result = ((((s1 * 5n) & MAX_UINT64_BIGINT) << 7n | ((s1 * 5n) & MAX_UINT64_BIGINT) >> (64n - 7n)) & MAX_UINT64_BIGINT) * 9n & MAX_UINT64_BIGINT;
+    const t = (s1 << 17n) & MAX_UINT64_BIGINT;
 
-    this.s[2] ^= this.s[0];
-    this.s[3] ^= this.s[1];
-    this.s[1] ^= this.s[2];
-    this.s[0] ^= this.s[3];
+    const new_s2 = s2 ^ s0;
+    const new_s3 = s3 ^ s1;
+    const new_s1 = s1 ^ new_s2;
+    const new_s0 = s0 ^ new_s3;
 
-    this.s[2] ^= t;
+    const newer_s2 = new_s2 ^ t;
+    const newer_s3 = ((new_s3 << 45n) | (new_s3 >> (64n - 45n))) & MAX_UINT64_BIGINT;
 
-    this.s[3] = rotl(this.s[3], 45) & MAX_UINT64;
+    this.s[0] = new_s0 & MAX_UINT64_BIGINT;
+    this.s[1] = new_s1 & MAX_UINT64_BIGINT;
+    this.s[2] = newer_s2 & MAX_UINT64_BIGINT;
+    this.s[3] = newer_s3;
 
     return result;
   }
 
+  next() {
+    return Number(this._nextBigInt());
+  }
+
   nextDouble() {
-    const m = MAX_UINT64 + 1;
-    const nxt = this.next();
-    return nxt / m;
+    const result = this._nextBigInt();
+    return Number(result) / (Number(MAX_UINT64_BIGINT) + 1);
   }
 
   nextInt(low, high) {
-    return Math.floor(this.nextDouble() * (high - low + 1) + low) & MAX_UINT64;
+    return Number((this._nextBigInt() * BigInt(high - low + 1) / (MAX_UINT64_BIGINT + 1n)) + BigInt(low));
   }
 
   nextByte() {

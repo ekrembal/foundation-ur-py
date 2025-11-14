@@ -23,6 +23,11 @@ export class InvalidChecksum extends Error {
 }
 
 export class FountainDecoder {
+  // Helper function to convert a Set to a string key for use in Maps
+  static setToKey(set) {
+    return [...set].sort((a, b) => a - b).join(',');
+  }
+
   static Part = class {
     constructor(indexes, data) {
       this.indexes = new Set(indexes);
@@ -49,6 +54,11 @@ export class FountainDecoder {
     index() {
       // TODO: Not efficient
       return [...this.indexes][0];
+    }
+    
+    // Get a string key for this part's indexes
+    indexKey() {
+      return FountainDecoder.setToKey(this.indexes);
     }
   };
 
@@ -166,7 +176,7 @@ export class FountainDecoder {
         this.enqueue(reducedPart);
       } else {
         // Otherwise, add it to the dict of current mixed parts
-        newMixed.set(reducedPart.indexes, reducedPart);
+        newMixed.set(reducedPart.indexKey(), reducedPart);
       }
     }
 
@@ -195,7 +205,7 @@ export class FountainDecoder {
     }
 
     // Record this part
-    this.simpleParts.set(p.indexes, p);
+    this.simpleParts.set(p.indexKey(), p);
     this.receivedPartIndexes.add(fragmentIndex);
 
     // If we've received all the parts
@@ -214,7 +224,8 @@ export class FountainDecoder {
 
       // Verify the message checksum and note success or failure
       const checksum = crc32Int(message);
-      if (checksum === this.expectedChecksum) {
+      // Compare as unsigned 32-bit integers to handle signed/unsigned mismatch
+      if ((checksum >>> 0) === (this.expectedChecksum >>> 0)) {
         this.result = new Uint8Array(message);
       } else {
         this.result = new InvalidChecksum('Checksum mismatch');
@@ -227,11 +238,9 @@ export class FountainDecoder {
 
   processMixedPart(p) {
     // Don't process duplicate parts
-    for (const r of this.mixedParts.values()) {
-      if (r.indexes.size === p.indexes.size && 
-          [...r.indexes].every(x => p.indexes.has(x))) {
-        return;
-      }
+    const pKey = p.indexKey();
+    if (this.mixedParts.has(pKey)) {
+      return;
     }
 
     // Reduce this part by all the others
@@ -252,7 +261,7 @@ export class FountainDecoder {
       // Reduce all the mixed parts by this one
       this.reduceMixedBy(p2);
       // Record this new mixed part
-      this.mixedParts.set(p2.indexes, p2);
+      this.mixedParts.set(p2.indexKey(), p2);
     }
   }
 

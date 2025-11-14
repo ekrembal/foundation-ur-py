@@ -7,3 +7,4 @@
 
 export const MAX_UINT32 = 0xffffffff;
 export const MAX_UINT64 = 0xffffffffffffffff;
+export const MAX_UINT64_BIGINT = 0xffffffffffffffffn;
